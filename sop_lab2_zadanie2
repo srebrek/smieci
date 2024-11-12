@@ -1,0 +1,124 @@
+#define _XOPEN_SOURCE 500
+
+#include <stdio.h>
+#include <dirent.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <getopt.h>
+#include <string.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <ftw.h>
+#include <libgen.h>
+
+#define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
+#define MAX_PATH_LENGTH 100
+
+char extension[MAX_PATH_LENGTH] = "\0";
+int depth = 1;
+
+int check_extension(const char* w1, const char* ext) {
+    int length_ext = strlen(ext);
+    int length_w1 = strlen(w1);
+    if (length_ext == 0) return 1;
+
+    if (w1[length_w1-1-length_ext] == '.') {
+        for (int i = 0; i < length_ext; i++) {
+            if (ext[i] != w1[length_w1-length_ext + i]) return 0;
+        }
+        return 1;
+    }
+    return 0;
+}
+
+void write_dir_content(const char* dir_path, char* out_path, char* extension) {
+    DIR* current_dir = opendir(dir_path);
+    if (current_dir == NULL) ERR("opendir()");
+
+    FILE* output;
+    if (out_path == NULL) output = stdout;
+    else {
+        output = fopen(out_path, "a");
+    }
+
+    char old_path[MAX_PATH_LENGTH];
+    if (!getcwd(old_path, MAX_PATH_LENGTH)) ERR("getcwd()");
+    if (chdir(dir_path)) ERR("chdir()");
+
+    fprintf(output, "SCIEZKA:\n");
+    fprintf(output, "%s\n", dir_path);
+    fprintf(output, "LISTA PLIKOW:\n");
+
+    struct dirent* current_file;
+    struct stat file_info;
+    while ((current_file = readdir(current_dir)) != NULL) {
+        if (lstat(current_file->d_name, &file_info)) ERR("lstat");
+        if (check_extension(current_file->d_name, extension)&&S_ISREG(file_info.st_mode))
+            fprintf(output, "%s %ld\n", current_file->d_name, file_info.st_size);
+    }
+
+    if (chdir(old_path)) ERR("chdir()");
+    closedir(current_dir);
+}
+
+int write_dir_content_rec(const char* dir_path, const struct stat *s, int type, struct FTW *f) {
+    char buffer[MAX_PATH_LENGTH];
+    strcpy(buffer, dir_path);
+    if (f->level > depth) return 0;
+    //if (type == FTW_D) fprintf(stdout, "path: %s\n", dir_path);
+    if (type == FTW_F && check_extension(basename(buffer), extension)) {
+        fprintf(stdout, "%s %ld\n", basename(buffer), s->st_size);
+    }
+
+    return 0;
+}
+
+int main(int argc, char** argv) {
+    int c;
+    int marko = 0;
+    char output_path[MAX_PATH_LENGTH];
+    // char extension[MAX_PATH_LENGTH] = "\0";
+    while ((c = getopt(argc, argv, "p:o:e:d:")) != -1) {
+        switch (c) {
+            case 'p':
+                break;
+            case 'o':
+                strcpy(output_path, optarg);
+                marko = 1;
+                break;
+            case 'e':
+                strcpy(extension, optarg);
+                // marke = 1;
+                break;
+            case 'd':
+                depth = strtol(optarg, (char **)NULL, 10);
+                break;
+            case '?':
+            default:
+                ERR("arguments");
+        }
+    }
+    if (unlink(output_path) && errno != ENOENT) ERR("unlink");
+    optind = 1;
+    while ((c = getopt(argc, argv, "p:o:e:d:")) != -1) {
+        switch (c) {
+            case 'p':
+                if (marko == 0) nftw(optarg, write_dir_content_rec, depth, FTW_PHYS);
+                //printf("%d\n", depth);
+                //else write_dir_content_rec(optarg, output_path, extension);
+                break;
+            case 'o':
+                break;
+            case 'e':
+                break;
+            case 'd':
+                break;
+            case '?':
+            default:
+                ERR("arguments");
+        }
+    }
+
+    return EXIT_SUCCESS;
+}
